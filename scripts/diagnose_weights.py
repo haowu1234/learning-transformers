@@ -5,7 +5,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from src.models.bert import BertConfig, BertModel, load_pretrained_weights, _PARAM_MAPPING, _build_encoder_mapping
+from src.models.bert import BertConfig, BertModel, _PARAM_MAPPING, _build_encoder_mapping
 
 
 def main():
@@ -13,6 +13,7 @@ def main():
     model = BertModel(config)
     our_state = model.state_dict()
 
+    # Build mapping (without bert. prefix)
     mapping = {**_PARAM_MAPPING}
     mapping.update(_build_encoder_mapping(config.num_hidden_layers))
 
@@ -20,9 +21,20 @@ def main():
     hf_model = HFBertModel.from_pretrained("bert-base-uncased")
     hf_state = hf_model.state_dict()
 
+    # Auto-detect prefix
+    sample_key = list(mapping.values())[0]
+    prefix = ""
+    if sample_key not in hf_state and f"bert.{sample_key}" in hf_state:
+        prefix = "bert."
+        print(f"Detected 'bert.' prefix in HF keys")
+    else:
+        print(f"No 'bert.' prefix in HF keys")
+
     loaded, missing, shape_mismatch = [], [], []
     for our_name, param in our_state.items():
         hf_name = mapping.get(our_name)
+        if hf_name is not None:
+            hf_name = prefix + hf_name
         if hf_name is None or hf_name not in hf_state:
             missing.append(our_name)
         elif param.shape != hf_state[hf_name].shape:
@@ -47,14 +59,6 @@ def main():
         print(f"\nShape mismatches:")
         for name, ours, hf in shape_mismatch:
             print(f"  - {name}: ours={ours}, hf={hf}")
-
-    # Also check: are there HF params we're NOT using?
-    used_hf = set(mapping.values())
-    unused_hf = [k for k in hf_state.keys() if k not in used_hf]
-    if unused_hf:
-        print(f"\nUnused HF parameters ({len(unused_hf)}):")
-        for name in unused_hf:
-            print(f"  - {name}")
 
 
 if __name__ == "__main__":

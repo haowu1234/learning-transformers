@@ -135,16 +135,18 @@ class BertForTask(nn.Module):
 # ---------------------------------------------------------------------------
 
 # Mapping from our parameter names → HuggingFace bert-base-uncased names
+# NOTE: HF state_dict keys may or may not have a "bert." prefix depending on version.
+# We store the non-prefixed version and auto-detect at load time.
 _PARAM_MAPPING = {
     # Embeddings
-    "embeddings.token_embeddings.weight": "bert.embeddings.word_embeddings.weight",
-    "embeddings.position_embeddings.weight": "bert.embeddings.position_embeddings.weight",
-    "embeddings.segment_embeddings.weight": "bert.embeddings.token_type_embeddings.weight",
-    "embeddings.layer_norm.weight": "bert.embeddings.LayerNorm.weight",
-    "embeddings.layer_norm.bias": "bert.embeddings.LayerNorm.bias",
+    "embeddings.token_embeddings.weight": "embeddings.word_embeddings.weight",
+    "embeddings.position_embeddings.weight": "embeddings.position_embeddings.weight",
+    "embeddings.segment_embeddings.weight": "embeddings.token_type_embeddings.weight",
+    "embeddings.layer_norm.weight": "embeddings.LayerNorm.weight",
+    "embeddings.layer_norm.bias": "embeddings.LayerNorm.bias",
     # Pooler
-    "pooler.dense.weight": "bert.pooler.dense.weight",
-    "pooler.dense.bias": "bert.pooler.dense.bias",
+    "pooler.dense.weight": "pooler.dense.weight",
+    "pooler.dense.bias": "pooler.dense.bias",
 }
 
 
@@ -153,7 +155,7 @@ def _build_encoder_mapping(num_layers: int) -> dict[str, str]:
     mapping = {}
     for i in range(num_layers):
         ours = f"encoder.layers.{i}"
-        hf = f"bert.encoder.layer.{i}"
+        hf = f"encoder.layer.{i}"
 
         # Self-attention Q/K/V/O
         for proj in ("query", "key", "value"):
@@ -183,6 +185,7 @@ def load_pretrained_weights(model: BertModel, pretrained_model_name: str = "bert
     """Load weights from a HuggingFace pretrained BERT model into our BertModel.
 
     Requires `transformers` library to be installed (used only for downloading weights).
+    Handles both old (bert.xxx) and new (xxx) HuggingFace state_dict key formats.
     """
     try:
         from transformers import BertModel as HFBertModel
@@ -196,20 +199,27 @@ def load_pretrained_weights(model: BertModel, pretrained_model_name: str = "bert
     hf_model = HFBertModel.from_pretrained(pretrained_model_name)
     hf_state = hf_model.state_dict()
 
-    # Build full mapping
+    # Build full mapping (our_name → hf_name without "bert." prefix)
     mapping = {**_PARAM_MAPPING}
     mapping.update(_build_encoder_mapping(model.config.num_hidden_layers))
 
-    # Reverse: our_name → hf_name  →  load hf weights into our model
+    # Auto-detect: does HF state_dict use "bert." prefix or not?
+    sample_hf_key = list(mapping.values())[0]  # e.g. "embeddings.word_embeddings.weight"
+    if sample_hf_key not in hf_state and f"bert.{sample_hf_key}" in hf_state:
+        # Old format: add "bert." prefix
+        mapping = {k: f"bert.{v}" for k, v in mapping.items()}
+        logger.info("Detected 'bert.' prefix in HF state_dict keys.")
+
+    # Load weights
     our_state = model.state_dict()
     new_state = {}
-    missing, unexpected = [], []
+    loaded, missing = [], []
 
     for our_name, param in our_state.items():
         hf_name = mapping.get(our_name)
         if hf_name is None or hf_name not in hf_state:
             missing.append(our_name)
-            new_state[our_name] = param  # keep init value
+            new_state[our_name] = param
             continue
 
         hf_param = hf_state[hf_name]
@@ -218,15 +228,20 @@ def load_pretrained_weights(model: BertModel, pretrained_model_name: str = "bert
                 f"Shape mismatch for {our_name}: ours={param.shape}, hf={hf_param.shape}. Skipping."
             )
             new_state[our_name] = param
+            missing.append(our_name)
             continue
 
         new_state[our_name] = hf_param
+        loaded.append(our_name)
 
     model.load_state_dict(new_state, strict=False)
 
+    total = len(our_state)
+    logger.info(
+        f"Pretrained weights loaded: {len(loaded)}/{total} parameters "
+        f"({len(loaded)/total*100:.1f}%). Missing: {len(missing)}"
+    )
     if missing:
         logger.info(f"Parameters not found in pretrained: {missing}")
 
-    # Handle buffers like position_ids
-    logger.info("Pretrained weights loaded successfully.")
     return model
