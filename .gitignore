@@ -18,9 +18,9 @@ env/
 *.swp
 *.swo
 
-# Data & Checkpoints
-data/
-checkpoints/
+# Data & Checkpoints (raw data downloads, not src/data/)
+/data/
+/checkpoints/
 *.pt
 *.pth
 *.bin
