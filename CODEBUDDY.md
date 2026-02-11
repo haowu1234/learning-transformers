@@ -7,39 +7,53 @@
 ## Architecture
 
 ```
-learning-transformers/
-├── src/                    # Source code
-│   ├── models/             # Model implementations
-│   │   ├── attention.py    # Multi-Head Attention
-│   │   ├── embedding.py    # Token embedding & positional encoding
-│   │   ├── transformer.py  # Transformer encoder/decoder
-│   │   └── bert.py         # BERT model
-│   ├── tasks/              # Downstream task heads
-│   │   ├── classification.py  # Text classification
-│   │   ├── ner.py             # Named Entity Recognition
-│   │   ├── qa.py              # Extractive QA
-│   │   └── sentence_pair.py   # NLI / Semantic similarity
-│   └── utils/              # Utilities
-│       ├── data.py         # Data loading & preprocessing
-│       ├── training.py     # Training loop & scheduling
-│       └── metrics.py      # Evaluation metrics
-├── configs/                # YAML config files
-├── scripts/                # Training & evaluation entry points
-├── tests/                  # Unit tests
-├── notebooks/              # Jupyter notebooks for exploration
-└── requirements.txt        # Python dependencies
+src/
+├── models/                     # Pure model components (task-agnostic)
+│   ├── attention.py            # Multi-Head Attention
+│   ├── embedding.py            # BertEmbedding (token + position + segment)
+│   ├── encoder.py              # TransformerEncoderLayer + TransformerEncoder
+│   └── bert.py                 # BertModel + BertForTask + weight loading
+├── heads/                      # Pluggable task heads (Registry pattern)
+│   ├── base.py                 # BaseHead abstract class
+│   ├── classification.py       # ClassificationHead (sentence-level)
+│   ├── token_classification.py # TokenClassificationHead (NER)
+│   └── qa.py                   # QAHead (span extraction)
+├── data/                       # Pluggable data modules (Registry pattern)
+│   ├── base.py                 # BaseDataModule abstract class
+│   ├── collator.py             # Generic DataCollator
+│   └── sst2.py                 # SST-2 sentiment dataset
+├── training/                   # Task-agnostic training engine
+│   ├── trainer.py              # Unified Trainer
+│   └── callbacks.py            # EarlyStopping, ModelCheckpoint
+├── evaluation/                 # Pluggable metrics (Registry pattern)
+│   ├── base.py                 # BaseMetric abstract class
+│   └── metrics.py              # Accuracy, F1
+└── utils/
+    └── registry.py             # Generic Registry mechanism
+
+configs/                        # YAML config per experiment
+scripts/                        # Entry points (train.py, evaluate.py)
+tests/                          # Unit tests
+docs/                           # Design documents
 ```
 
 ## Tech Stack
 
 - Python 3.10+
 - PyTorch (core framework)
-- HuggingFace `tokenizers` & `datasets`
+- HuggingFace `transformers`, `tokenizers`, `datasets`
 - YAML-based configuration
+
+## Design Patterns
+
+- **Registry Pattern**: HEAD_REGISTRY, DATASET_REGISTRY, METRIC_REGISTRY — new tasks require zero changes to existing code
+- **Abstract Base Classes**: BaseHead, BaseDataModule, BaseMetric define contracts
+- **Composition**: BertForTask = BertModel (backbone) + any BaseHead (task head)
+- **Config-driven**: each experiment has its own YAML file in `configs/`
 
 ## Conventions
 
-- All model code in `src/models/`, task heads in `src/tasks/`, utilities in `src/utils/`
-- Use pretrained weights (e.g. from HuggingFace) for fine-tuning; no pretraining in this project
-- Config-driven: hyperparameters live in `configs/` YAML files
-- Entry points are in `scripts/`
+- Model components in `src/models/`, task heads in `src/heads/`, data in `src/data/`
+- Use pretrained weights (from HuggingFace) for fine-tuning; no pretraining
+- Entry points in `scripts/`, run via `python scripts/train.py --config configs/xxx.yaml`
+- To add a new task: add a head + data module + config file (open-closed principle)

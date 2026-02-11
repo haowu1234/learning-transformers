@@ -1,5 +1,12 @@
-# BERT-base configuration
+# SST-2 Sentiment Classification with BERT-base
+
+task:
+  head: "classification"
+  dataset: "sst2"
+  metrics: ["accuracy", "f1"]
+
 model:
+  pretrained: "bert-base-uncased"
   vocab_size: 30522
   hidden_size: 768
   num_hidden_layers: 12
@@ -15,4 +22,15 @@ training:
   num_epochs: 3
   warmup_ratio: 0.1
   weight_decay: 0.01
+  max_grad_norm: 1.0
   max_seq_length: 128
+  device: "auto"
+  log_interval: 50
+
+checkpoint:
+  save_dir: "checkpoints"
+  mode: "max"
+
+early_stopping:
+  patience: 3
+  mode: "max"
