@@ -4,3 +4,4 @@ from . import classification  # noqa: F401
 from . import token_classification  # noqa: F401
 from . import qa  # noqa: F401
 from . import similarity  # noqa: F401
+from . import regression  # noqa: F401

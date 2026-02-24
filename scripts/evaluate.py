@@ -98,8 +98,11 @@ def predict_single(model, tokenizer, text: str, device: torch.device,
         }
 
 
-def predict_pair(model, tokenizer, text: str, device: torch.device) -> dict:
-    """Run inference on a sentence pair (separated by [SEP] or |||)."""
+def predict_pair(model, tokenizer, text: str, device: torch.device, head_type: str = "similarity") -> dict:
+    """Run inference on a sentence pair (separated by [SEP] or |||).
+
+    Supports both Bi-Encoder (similarity) and Cross-Encoder (regression) modes.
+    """
     # Split input into two sentences
     if "|||" in text:
         sent_a, sent_b = [s.strip() for s in text.split("|||", 1)]
@@ -111,32 +114,42 @@ def predict_pair(model, tokenizer, text: str, device: torch.device) -> dict:
         else:
             return {"error": "Please separate two sentences with ||| (e.g. 'sentence A ||| sentence B')"}
 
-    enc_a = tokenizer(sent_a, max_length=128, truncation=True, padding="max_length", return_tensors="pt")
-    enc_b = tokenizer(sent_b, max_length=128, truncation=True, padding="max_length", return_tensors="pt")
-
-    batch = {
-        "input_ids_a": enc_a["input_ids"].to(device),
-        "attention_mask_a": enc_a["attention_mask"].to(device),
-        "token_type_ids_a": enc_a.get("token_type_ids", torch.zeros_like(enc_a["input_ids"])).to(device),
-        "input_ids_b": enc_b["input_ids"].to(device),
-        "attention_mask_b": enc_b["attention_mask"].to(device),
-        "token_type_ids_b": enc_b.get("token_type_ids", torch.zeros_like(enc_b["input_ids"])).to(device),
-    }
-
     model.eval()
     with torch.no_grad():
-        outputs = model(**batch)
-
-    cos_sim = outputs["logits"].item()
-    # Map [-1, 1] back to [0, 5] for human-readable score
-    score_0_5 = (cos_sim + 1.0) * 5.0 / 2.0
-
-    return {
-        "sentence1": sent_a,
-        "sentence2": sent_b,
-        "cosine_similarity": cos_sim,
-        "score_0_5": score_0_5,
-    }
+        if head_type == "similarity":
+            # Bi-Encoder: encode separately
+            enc_a = tokenizer(sent_a, max_length=128, truncation=True, padding="max_length", return_tensors="pt")
+            enc_b = tokenizer(sent_b, max_length=128, truncation=True, padding="max_length", return_tensors="pt")
+            batch = {
+                "input_ids_a": enc_a["input_ids"].to(device),
+                "attention_mask_a": enc_a["attention_mask"].to(device),
+                "token_type_ids_a": enc_a.get("token_type_ids", torch.zeros_like(enc_a["input_ids"])).to(device),
+                "input_ids_b": enc_b["input_ids"].to(device),
+                "attention_mask_b": enc_b["attention_mask"].to(device),
+                "token_type_ids_b": enc_b.get("token_type_ids", torch.zeros_like(enc_b["input_ids"])).to(device),
+            }
+            outputs = model(**batch)
+            cos_sim = outputs["logits"].item()
+            score_0_5 = (cos_sim + 1.0) * 5.0 / 2.0
+            return {
+                "sentence1": sent_a,
+                "sentence2": sent_b,
+                "cosine_similarity": cos_sim,
+                "score_0_5": score_0_5,
+            }
+        else:
+            # Cross-Encoder: concatenate as sentence pair
+            enc = tokenizer(sent_a, sent_b, max_length=128, truncation=True, padding="max_length", return_tensors="pt")
+            enc = {k: v.to(device) for k, v in enc.items()}
+            outputs = model(**enc)
+            score_0_1 = outputs["logits"].item()
+            score_0_5 = score_0_1 * 5.0
+            return {
+                "sentence1": sent_a,
+                "sentence2": sent_b,
+                "score_0_1": score_0_1,
+                "score_0_5": score_0_5,
+            }
 
 
 def main():
@@ -186,15 +199,19 @@ def main():
 
     # --- Single text inference ---
     if args.text:
-        if config["task"]["head"] == "similarity":
-            result = predict_pair(model, data_module.tokenizer, args.text, device)
+        if config["task"]["head"] in ("similarity", "regression"):
+            result = predict_pair(model, data_module.tokenizer, args.text, device,
+                                  head_type=config["task"]["head"])
             if "error" in result:
                 print(f"\nError: {result['error']}")
             else:
                 print(f"\nPrediction:")
                 print(f"  Sentence 1: {result['sentence1']}")
                 print(f"  Sentence 2: {result['sentence2']}")
-                print(f"  Cosine Sim: {result['cosine_similarity']:.4f}")
+                if "cosine_similarity" in result:
+                    print(f"  Cosine Sim: {result['cosine_similarity']:.4f}")
+                if "score_0_1" in result:
+                    print(f"  Score (0-1): {result['score_0_1']:.4f}")
                 print(f"  Score (0-5): {result['score_0_5']:.2f}")
         else:
             result = predict_single(model, data_module.tokenizer, args.text, device,

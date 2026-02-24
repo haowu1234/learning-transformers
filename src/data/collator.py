@@ -22,6 +22,7 @@ class DataCollator:
     pad_token_id: int = 0
     pad_to_max_length: bool = False
     max_length: int = 128
+    label_dtype: str = "long"  # "long" for classification, "float" for regression
 
     def __call__(self, batch: list[dict]) -> dict[str, Tensor]:
         if self.pad_to_max_length:
@@ -55,7 +56,8 @@ class DataCollator:
         if has_token_type_ids:
             result["token_type_ids"] = torch.tensor(token_type_ids, dtype=torch.long)
 
-        # labels: scalar (classification) or sequence (token classification)
+        # labels: scalar (classification/regression) or sequence (token classification)
+        label_torch_dtype = torch.float if self.label_dtype == "float" else torch.long
         if isinstance(labels[0], list):
             # Pad token-level labels with -100
             padded_labels = []
@@ -64,6 +66,6 @@ class DataCollator:
                 padded_labels.append(lbl + [-100] * pad_len)
             result["labels"] = torch.tensor(padded_labels, dtype=torch.long)
         else:
-            result["labels"] = torch.tensor(labels, dtype=torch.long)
+            result["labels"] = torch.tensor(labels, dtype=label_torch_dtype)
 
         return result
