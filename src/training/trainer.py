@@ -127,12 +127,7 @@ class Trainer:
             for step, batch in enumerate(pbar, 1):
                 batch = {k: v.to(self.device) for k, v in batch.items()}
 
-                outputs = self.model(
-                    input_ids=batch["input_ids"],
-                    attention_mask=batch["attention_mask"],
-                    token_type_ids=batch.get("token_type_ids"),
-                    labels=batch["labels"],
-                )
+                outputs = self.model(**batch)
                 loss = outputs["loss"]
 
                 loss.backward()
@@ -157,7 +152,15 @@ class Trainer:
             logger.info(f"Epoch {epoch} — eval: {results_str}")
 
             # --- Callbacks ---
-            monitor_value = results.get("accuracy", -results.get("loss", 0))
+            # Pick the best available metric for monitoring
+            if "accuracy" in results:
+                monitor_value = results["accuracy"]
+            elif "f1" in results:
+                monitor_value = results["f1"]
+            elif "spearman" in results:
+                monitor_value = results["spearman"]
+            else:
+                monitor_value = -results.get("loss", 0)
 
             if self.checkpoint:
                 self.checkpoint(monitor_value, self.model, epoch)
@@ -188,18 +191,17 @@ class Trainer:
         for batch in tqdm(dataloader, desc="Evaluating"):
             batch = {k: v.to(self.device) for k, v in batch.items()}
 
-            outputs = self.model(
-                input_ids=batch["input_ids"],
-                attention_mask=batch["attention_mask"],
-                token_type_ids=batch.get("token_type_ids"),
-                labels=batch["labels"],
-            )
+            outputs = self.model(**batch)
 
             if outputs["loss"] is not None:
                 total_loss += outputs["loss"].item()
                 num_batches += 1
 
-            preds = outputs["logits"].argmax(dim=-1)
+            logits = outputs["logits"]
+            if logits.dim() == 1 or (logits.dim() == 2 and logits.size(-1) == 1):
+                preds = logits.squeeze(-1)  # regression
+            else:
+                preds = logits.argmax(dim=-1)  # classification / sequence labeling
             labels = batch["labels"]
 
             for m in metrics:
@@ -220,11 +222,7 @@ class Trainer:
 
         for batch in tqdm(dataloader, desc="Predicting"):
             batch = {k: v.to(self.device) for k, v in batch.items()}
-            outputs = self.model(
-                input_ids=batch["input_ids"],
-                attention_mask=batch["attention_mask"],
-                token_type_ids=batch.get("token_type_ids"),
-            )
+            outputs = self.model(**batch)
             all_logits.append(outputs["logits"].cpu())
 
         return all_logits

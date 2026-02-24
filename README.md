@@ -9,6 +9,7 @@
 | 情感分类 | SST-2 | bert-base-uncased | Accuracy | **92.55%** |
 | 命名实体识别 | CoNLL-2003 | bert-base-cased | Entity F1 | **94.88%** |
 | PII 检测 | ai4privacy/pii-masking-400k | bert-base-multilingual-cased | Entity F1 | **93.09%** |
+| 语义相似度 | STS-B (GLUE) | bert-base-uncased | Spearman | — |
 
 ## 特性
 
@@ -28,6 +29,7 @@ pip install -r requirements.txt
 python scripts/train.py --config configs/sst2_classification.yaml
 python scripts/train.py --config configs/conll2003_ner.yaml
 python scripts/train.py --config configs/pii_detection.yaml
+python scripts/train.py --config configs/stsb_similarity.yaml
 
 # 3. 评估 (默认 validation，加 --split test 切换到 test)
 python scripts/evaluate.py --config configs/sst2_classification.yaml \
@@ -48,17 +50,21 @@ python scripts/evaluate.py --config configs/conll2003_ner.yaml \
 python scripts/evaluate.py --config configs/pii_detection.yaml \
     --checkpoint checkpoints/pii/best_model.pt \
     --text "Contact John Smith at john@example.com"
+
+python scripts/evaluate.py --config configs/stsb_similarity.yaml \
+    --checkpoint checkpoints/stsb/best_model.pt \
+    --text "A plane is taking off. ||| An air plane is taking off."
 ```
 
 ## 项目结构
 
 ```
 src/
-├── models/          # Multi-Head Attention → Embedding → Encoder → BERT
-├── heads/           # 可插拔任务头: classification, token_classification, qa
-├── data/            # 可插拔数据模块: SST-2, CoNLL-2003, PII
+├── models/          # Multi-Head Attention → Embedding → Encoder → BERT / Bi-Encoder
+├── heads/           # 可插拔任务头: classification, token_classification, similarity, qa
+├── data/            # 可插拔数据模块: SST-2, CoNLL-2003, PII, STS-B
 ├── training/        # Trainer + EarlyStopping + ModelCheckpoint
-├── evaluation/      # 可插拔指标: Accuracy, F1, SeqevalF1
+├── evaluation/      # 可插拔指标: Accuracy, F1, SeqevalF1, Spearman
 └── utils/           # Registry 注册表
 configs/             # 每个实验一份 YAML
 scripts/             # train.py / evaluate.py 入口
@@ -78,7 +84,7 @@ docs/                # 任务设计文档
 task:
   head: "token_classification"   # 复用已有 head 或新建
   dataset: "your_dataset"        # 对应注册名
-  metrics: ["seqeval"]           # accuracy / f1 / seqeval
+  metrics: ["seqeval"]           # accuracy / f1 / seqeval / spearman
 model:
   pretrained: "bert-base-uncased"
 training:

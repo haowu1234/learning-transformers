@@ -15,6 +15,9 @@ Usage:
 
     # Single text inference (PII)
     python scripts/evaluate.py --config configs/pii_detection.yaml --checkpoint checkpoints/pii/best_model.pt --text "Contact John Smith at john@example.com"
+
+    # Sentence pair inference (similarity)
+    python scripts/evaluate.py --config configs/stsb_similarity.yaml --checkpoint checkpoints/stsb/best_model.pt --text "A plane is taking off. ||| An air plane is taking off."
 """
 
 import argparse
@@ -95,6 +98,47 @@ def predict_single(model, tokenizer, text: str, device: torch.device,
         }
 
 
+def predict_pair(model, tokenizer, text: str, device: torch.device) -> dict:
+    """Run inference on a sentence pair (separated by [SEP] or |||)."""
+    # Split input into two sentences
+    if "|||" in text:
+        sent_a, sent_b = [s.strip() for s in text.split("|||", 1)]
+    else:
+        # Fallback: split by [SEP]
+        parts = text.split("[SEP]")
+        if len(parts) >= 2:
+            sent_a, sent_b = parts[0].strip(), parts[1].strip()
+        else:
+            return {"error": "Please separate two sentences with ||| (e.g. 'sentence A ||| sentence B')"}
+
+    enc_a = tokenizer(sent_a, max_length=128, truncation=True, padding="max_length", return_tensors="pt")
+    enc_b = tokenizer(sent_b, max_length=128, truncation=True, padding="max_length", return_tensors="pt")
+
+    batch = {
+        "input_ids_a": enc_a["input_ids"].to(device),
+        "attention_mask_a": enc_a["attention_mask"].to(device),
+        "token_type_ids_a": enc_a.get("token_type_ids", torch.zeros_like(enc_a["input_ids"])).to(device),
+        "input_ids_b": enc_b["input_ids"].to(device),
+        "attention_mask_b": enc_b["attention_mask"].to(device),
+        "token_type_ids_b": enc_b.get("token_type_ids", torch.zeros_like(enc_b["input_ids"])).to(device),
+    }
+
+    model.eval()
+    with torch.no_grad():
+        outputs = model(**batch)
+
+    cos_sim = outputs["logits"].item()
+    # Map [-1, 1] back to [0, 5] for human-readable score
+    score_0_5 = (cos_sim + 1.0) * 5.0 / 2.0
+
+    return {
+        "sentence1": sent_a,
+        "sentence2": sent_b,
+        "cosine_similarity": cos_sim,
+        "score_0_5": score_0_5,
+    }
+
+
 def main():
     parser = argparse.ArgumentParser(description="Evaluate or run inference")
     parser.add_argument("--config", type=str, required=True)
@@ -119,12 +163,18 @@ def main():
     bert_config = BertConfig.from_dict(config["model"])
     backbone = BertModel(bert_config)
     head_cls = HEAD_REGISTRY.get(config["task"]["head"])
-    head = head_cls(
-        hidden_size=bert_config.hidden_size,
-        num_labels=data_module.num_labels,
-        dropout_prob=bert_config.hidden_dropout_prob,
-    )
-    model = BertForTask(backbone, head)
+
+    if config["task"]["head"] == "similarity":
+        from src.models.bi_encoder import BertBiEncoder
+        head = head_cls(hidden_size=bert_config.hidden_size)
+        model = BertBiEncoder(backbone, head)
+    else:
+        head = head_cls(
+            hidden_size=bert_config.hidden_size,
+            num_labels=data_module.num_labels,
+            dropout_prob=bert_config.hidden_dropout_prob,
+        )
+        model = BertForTask(backbone, head)
 
     # Load checkpoint
     training_config = TrainingConfig.from_dict(config["training"])
@@ -136,25 +186,34 @@ def main():
 
     # --- Single text inference ---
     if args.text:
-        result = predict_single(model, data_module.tokenizer, args.text, device,
-                                data_module.get_labels(), config["task"]["head"],
-                                config["task"]["dataset"])
-        print(f"\nPrediction:")
-        print(f"  Text: {result['text']}")
-        if "tokens" in result:
-            # Token-level task (NER)
-            print(f"  Entities:")
-            for token, tag in result["tokens"]:
-                if tag != "O":
-                    print(f"    {token:15s} → {tag}")
-            print(f"  All tokens:")
-            for token, tag in result["tokens"]:
-                print(f"    {token:15s} → {tag}")
+        if config["task"]["head"] == "similarity":
+            result = predict_pair(model, data_module.tokenizer, args.text, device)
+            if "error" in result:
+                print(f"\nError: {result['error']}")
+            else:
+                print(f"\nPrediction:")
+                print(f"  Sentence 1: {result['sentence1']}")
+                print(f"  Sentence 2: {result['sentence2']}")
+                print(f"  Cosine Sim: {result['cosine_similarity']:.4f}")
+                print(f"  Score (0-5): {result['score_0_5']:.2f}")
         else:
-            # Sentence-level task
-            print(f"  Label:      {result['label']}")
-            print(f"  Confidence: {result['confidence']:.4f}")
-            print(f"  Probs:      {result['probabilities']}")
+            result = predict_single(model, data_module.tokenizer, args.text, device,
+                                    data_module.get_labels(), config["task"]["head"],
+                                    config["task"]["dataset"])
+            print(f"\nPrediction:")
+            print(f"  Text: {result['text']}")
+            if "tokens" in result:
+                print(f"  Entities:")
+                for token, tag in result["tokens"]:
+                    if tag != "O":
+                        print(f"    {token:15s} → {tag}")
+                print(f"  All tokens:")
+                for token, tag in result["tokens"]:
+                    print(f"    {token:15s} → {tag}")
+            else:
+                print(f"  Label:      {result['label']}")
+                print(f"  Confidence: {result['confidence']:.4f}")
+                print(f"  Probs:      {result['probabilities']}")
         return
 
     # --- Full evaluation ---

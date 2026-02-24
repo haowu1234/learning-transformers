@@ -54,13 +54,19 @@ def main():
     backbone = load_pretrained_weights(backbone, config["model"]["pretrained"])
 
     head_cls = HEAD_REGISTRY.get(config["task"]["head"])
-    head = head_cls(
-        hidden_size=bert_config.hidden_size,
-        num_labels=data_module.num_labels,
-        dropout_prob=bert_config.hidden_dropout_prob,
-    )
 
-    model = BertForTask(backbone, head)
+    if config["task"]["head"] == "similarity":
+        # Bi-Encoder: shared backbone encodes two sentences independently
+        from src.models.bi_encoder import BertBiEncoder
+        head = head_cls(hidden_size=bert_config.hidden_size)
+        model = BertBiEncoder(backbone, head)
+    else:
+        head = head_cls(
+            hidden_size=bert_config.hidden_size,
+            num_labels=data_module.num_labels,
+            dropout_prob=bert_config.hidden_dropout_prob,
+        )
+        model = BertForTask(backbone, head)
     total_params = sum(p.numel() for p in model.parameters())
     trainable_params = sum(p.numel() for p in model.parameters() if p.requires_grad)
     logger.info(f"Model: {total_params:,} total params, {trainable_params:,} trainable")
