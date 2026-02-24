@@ -71,6 +71,8 @@ def main():
         metric_cls = METRIC_REGISTRY.get(metric_name)
         if metric_name == "f1":
             metrics.append(metric_cls(num_labels=data_module.num_labels))
+        elif metric_name == "seqeval":
+            metrics.append(metric_cls(label_list=data_module.get_labels()))
         else:
             metrics.append(metric_cls())
 
