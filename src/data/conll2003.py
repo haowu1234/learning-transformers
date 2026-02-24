@@ -29,10 +29,8 @@ class CoNLL2003DataModule(BaseDataModule):
 
     LABELS = [
         "O",
-        "B-PER", "I-PER",
-        "B-ORG", "I-ORG",
-        "B-LOC", "I-LOC",
-        "B-MISC", "I-MISC",
+        "B-ORG", "B-MISC", "B-PER", "I-PER",
+        "B-LOC", "I-ORG", "I-MISC", "I-LOC",
     ]
 
     def __init__(
@@ -61,7 +59,7 @@ class CoNLL2003DataModule(BaseDataModule):
     def setup(self) -> None:
         from datasets import load_dataset
 
-        raw = load_dataset("eriktks/conll2003")
+        raw = load_dataset("tner/conll2003")
         self.train_dataset = CoNLL2003Dataset(self._tokenize(raw["train"]))
         self.val_dataset = CoNLL2003Dataset(self._tokenize(raw["validation"]))
         self.test_dataset = CoNLL2003Dataset(self._tokenize(raw["test"]))
@@ -90,7 +88,7 @@ class CoNLL2003DataModule(BaseDataModule):
         examples = []
         for item in split:
             tokens = item["tokens"]
-            ner_tags = item["ner_tags"]
+            ner_tags = item["tags"]
 
             enc = self.tokenizer(
                 tokens,
