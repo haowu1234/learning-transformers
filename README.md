@@ -4,12 +4,13 @@
 
 ## 已支持任务
 
-| 任务 | 数据集 | 模型 | 指标 | 结果 |
-|------|--------|------|------|------|
-| 情感分类 | SST-2 | bert-base-uncased | Accuracy | **92.55%** |
-| 命名实体识别 | CoNLL-2003 | bert-base-cased | Entity F1 | **94.88%** |
-| PII 检测 | ai4privacy/pii-masking-400k | bert-base-multilingual-cased | Entity F1 | **93.09%** |
-| 语义相似度 | STS-B (GLUE) | bert-base-uncased | Spearman | — |
+| 任务 | 数据集 | 模型 | 架构 | 指标 | 结果 |
+|------|--------|------|------|------|------|
+| 情感分类 | SST-2 | bert-base-uncased | Single Encoder | Accuracy | **92.55%** |
+| 命名实体识别 | CoNLL-2003 | bert-base-cased | Single Encoder | Entity F1 | **94.88%** |
+| PII 检测 | ai4privacy/pii-masking-400k | bert-base-multilingual-cased | Single Encoder | Entity F1 | **93.09%** |
+| 语义相似度 | STS-B (GLUE) | bert-base-uncased | Bi-Encoder | Spearman | **74.83%** |
+| 语义相似度 | STS-B (GLUE) | bert-base-uncased | Cross-Encoder | Spearman | **88.62%** |
 
 ## 特性
 
@@ -30,6 +31,7 @@ python scripts/train.py --config configs/sst2_classification.yaml
 python scripts/train.py --config configs/conll2003_ner.yaml
 python scripts/train.py --config configs/pii_detection.yaml
 python scripts/train.py --config configs/stsb_similarity.yaml
+python scripts/train.py --config configs/stsb_cross_encoder.yaml
 
 # 3. 评估 (默认 validation，加 --split test 切换到 test)
 python scripts/evaluate.py --config configs/sst2_classification.yaml \
@@ -54,6 +56,10 @@ python scripts/evaluate.py --config configs/pii_detection.yaml \
 python scripts/evaluate.py --config configs/stsb_similarity.yaml \
     --checkpoint checkpoints/stsb/best_model.pt \
     --text "A plane is taking off. ||| An air plane is taking off."
+
+python scripts/evaluate.py --config configs/stsb_cross_encoder.yaml \
+    --checkpoint checkpoints/stsb_cross_encoder/best_model.pt \
+    --text "A plane is taking off. ||| An air plane is taking off."
 ```
 
 ## 项目结构
@@ -61,10 +67,10 @@ python scripts/evaluate.py --config configs/stsb_similarity.yaml \
 ```
 src/
 ├── models/          # Multi-Head Attention → Embedding → Encoder → BERT / Bi-Encoder
-├── heads/           # 可插拔任务头: classification, token_classification, similarity, qa
-├── data/            # 可插拔数据模块: SST-2, CoNLL-2003, PII, STS-B
+├── heads/           # 可插拔任务头: classification, token_classification, similarity, regression, qa
+├── data/            # 可插拔数据模块: SST-2, CoNLL-2003, PII, STS-B (Bi/Cross-Encoder)
 ├── training/        # Trainer + EarlyStopping + ModelCheckpoint
-├── evaluation/      # 可插拔指标: Accuracy, F1, SeqevalF1, Spearman
+├── evaluation/      # 可插拔指标: Accuracy, F1, SeqevalF1, Spearman/Pearson
 └── utils/           # Registry 注册表
 configs/             # 每个实验一份 YAML
 scripts/             # train.py / evaluate.py 入口
