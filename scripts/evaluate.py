@@ -104,6 +104,7 @@ def main():
         max_seq_length=config["training"]["max_seq_length"],
         batch_size=config["training"]["batch_size"],
     )
+    data_module.setup()
 
     # --- Build model ---
     bert_config = BertConfig.from_dict(config["model"])
@@ -147,8 +148,6 @@ def main():
         return
 
     # --- Full evaluation ---
-    data_module.setup()
-
     # Select split
     if args.split == "test":
         eval_dataloader = data_module.test_dataloader()
