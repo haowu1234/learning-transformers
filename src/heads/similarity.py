@@ -20,6 +20,8 @@ class SimilarityHead(BaseHead):
 
     def __init__(self, hidden_size: int, **kwargs):
         super().__init__()
+        # Learnable linear projection: w * cos_sim + b (Sentence-BERT style)
+        self.projection = nn.Linear(1, 1)
         self.loss_fn = nn.MSELoss()
 
     @staticmethod
@@ -48,7 +50,8 @@ class SimilarityHead(BaseHead):
     ) -> Tensor:
         emb_a = self.mean_pooling(backbone_outputs_a["sequence_output"], attention_mask_a)
         emb_b = self.mean_pooling(backbone_outputs_b["sequence_output"], attention_mask_b)
-        return F.cosine_similarity(emb_a, emb_b)  # (B,)
+        cos_sim = F.cosine_similarity(emb_a, emb_b)  # (B,)
+        return self.projection(cos_sim.unsqueeze(-1)).squeeze(-1)  # (B,)
 
     def compute_loss(self, logits: Tensor, labels: Tensor, **kwargs) -> Tensor:
         return self.loss_fn(logits, labels)
