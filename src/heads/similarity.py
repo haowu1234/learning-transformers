@@ -21,7 +21,10 @@ class SimilarityHead(BaseHead):
     def __init__(self, hidden_size: int, **kwargs):
         super().__init__()
         # Learnable linear projection: w * cos_sim + b (Sentence-BERT style)
+        # Init to (cos_sim + 1) / 2, mapping [-1,1] → [0,1] to match STS-B labels
         self.projection = nn.Linear(1, 1)
+        nn.init.constant_(self.projection.weight, 0.5)
+        nn.init.constant_(self.projection.bias, 0.5)
         self.loss_fn = nn.MSELoss()
 
     @staticmethod
