@@ -61,7 +61,7 @@ class CoNLL2003DataModule(BaseDataModule):
     def setup(self) -> None:
         from datasets import load_dataset
 
-        raw = load_dataset("conll2003", trust_remote_code=True)
+        raw = load_dataset("eriktks/conll2003")
         self.train_dataset = CoNLL2003Dataset(self._tokenize(raw["train"]))
         self.val_dataset = CoNLL2003Dataset(self._tokenize(raw["validation"]))
         self.test_dataset = CoNLL2003Dataset(self._tokenize(raw["test"]))
