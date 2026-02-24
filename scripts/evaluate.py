@@ -12,6 +12,9 @@ Usage:
 
     # Single text inference (NER)
     python scripts/evaluate.py --config configs/conll2003_ner.yaml --checkpoint checkpoints/ner/best_model.pt --text "John lives in New York"
+
+    # Single text inference (PII)
+    python scripts/evaluate.py --config configs/pii_detection.yaml --checkpoint checkpoints/pii/best_model.pt --text "Contact John Smith at john@example.com"
 """
 
 import argparse
@@ -37,11 +40,16 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 
-def predict_single(model, tokenizer, text: str, device: torch.device, labels: list[str], task_head: str) -> dict:
+def predict_single(model, tokenizer, text: str, device: torch.device,
+                   labels: list[str], task_head: str, dataset_name: str) -> dict:
     """Run inference on a single text string."""
     is_token_task = task_head == "token_classification"
 
-    if is_token_task:
+    # NER datasets (e.g. CoNLL-2003) trained with is_split_into_words=True;
+    # PII dataset trained with direct tokenizer(text) since mbert_tokens are pre-tokenized.
+    use_word_split = is_token_task and dataset_name not in ("pii",)
+
+    if use_word_split:
         words = text.split()
         enc = tokenizer(words, is_split_into_words=True, max_length=128, truncation=True, padding="max_length", return_tensors="pt")
     else:
@@ -60,20 +68,21 @@ def predict_single(model, tokenizer, text: str, device: torch.device, labels: li
     logits = outputs["logits"]
 
     if is_token_task:
-        # Token-level: decode each token
         pred_ids = logits[0].argmax(dim=-1).tolist()
-        word_ids = enc.get("word_ids", None)
-        # Reconstruct word_ids from tokenizer
         tokens = tokenizer.convert_ids_to_tokens(enc["input_ids"][0])
+
+        # Merge subword tokens (##xxx) into their preceding token for display
         result_tokens = []
-        prev_word_id = None
-        for i, (token, pred_id) in enumerate(zip(tokens, pred_ids)):
+        for token, pred_id in zip(tokens, pred_ids):
             if token in (tokenizer.cls_token, tokenizer.sep_token, tokenizer.pad_token):
                 continue
-            if token.startswith("##"):
-                continue
             tag = labels[pred_id] if 0 <= pred_id < len(labels) else "O"
-            result_tokens.append((token, tag))
+            if token.startswith("##") and result_tokens:
+                # Append subword to previous token's display text
+                prev_text, prev_tag = result_tokens[-1]
+                result_tokens[-1] = (prev_text + token[2:], prev_tag)
+            else:
+                result_tokens.append((token, tag))
         return {"text": text, "tokens": result_tokens}
     else:
         probs = torch.softmax(logits, dim=-1)
@@ -128,7 +137,8 @@ def main():
     # --- Single text inference ---
     if args.text:
         result = predict_single(model, data_module.tokenizer, args.text, device,
-                                data_module.get_labels(), config["task"]["head"])
+                                data_module.get_labels(), config["task"]["head"],
+                                config["task"]["dataset"])
         print(f"\nPrediction:")
         print(f"  Text: {result['text']}")
         if "tokens" in result:
