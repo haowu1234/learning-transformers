@@ -20,21 +20,20 @@ class SeqevalF1(BaseMetric):
         self.reset()
 
     def update(self, preds: Tensor, labels: Tensor) -> None:
-        # preds, labels: (batch, seq_len)
-        self.all_preds.append(preds.cpu())
-        self.all_labels.append(labels.cpu())
+        # preds, labels: (batch, seq_len) — seq_len varies across batches
+        # Store row by row to avoid cat issues with different lengths
+        for i in range(preds.size(0)):
+            self.all_preds.append(preds[i].cpu())
+            self.all_labels.append(labels[i].cpu())
 
     def compute(self) -> dict[str, float]:
-        preds = torch.cat(self.all_preds, dim=0)   # (N, L)
-        labels = torch.cat(self.all_labels, dim=0)  # (N, L)
-
         total_tp = 0
         total_fp = 0
         total_fn = 0
 
-        for i in range(preds.size(0)):
-            pred_ids = preds[i].tolist()
-            label_ids = labels[i].tolist()
+        for pred_row, label_row in zip(self.all_preds, self.all_labels):
+            pred_ids = pred_row.tolist()
+            label_ids = label_row.tolist()
 
             # Filter out -100 positions and convert to tag strings
             pred_tags = []
